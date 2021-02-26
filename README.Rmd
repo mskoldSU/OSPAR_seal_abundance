@@ -1,0 +1,74 @@
+---
+title: "Preparing files for OSPAR seals reporting"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+library(tidyverse)
+library(sf)
+```
+
+## Read shapefiles with region borders
+
+```{r}
+BalticAreas <- st_read("polygons/BA.shp") %>% 
+  rename(BalticAreas_id = id) %>% 
+  filter(!st_is_empty(.))
+SwePolygons <- st_read("polygons/SwP.shp") %>% 
+  rename(SwePolygons_id = id)
+SweRegions <- st_read("polygons/SwR.shp") %>% 
+  rename(SweRegions_id = id) %>% 
+  select(-Regioner)
+```
+
+## Read seals data and join with shapefiles to add region id:s
+
+```{r}
+data <- readxl::read_excel("data/HSvktoMartin.xlsx") %>% 
+  select(Date = Datum, LatDD, LonDD, N_HS) %>% 
+  st_as_sf(coords = c("LonDD", "LatDD"), remove = FALSE) %>% 
+  st_set_crs("+proj=longlat +datum=WGS84") %>% 
+  st_join(BalticAreas) %>% 
+  st_join(SweRegions) %>% 
+  st_join(SwePolygons)
+```
+
+## Compute daily sum over SwePolygons and save
+
+```{r}
+daily_SwePolygons <- data %>% 
+  as_tibble() %>% 
+  select(-geometry) %>% 
+  group_by(Date, BalticAreas_id, SweRegions_id, SwePolygons_id) %>% 
+  summarise(N_HS = sum(N_HS), .groups = "drop")
+head(daily_SwePolygons)
+openxlsx::write.xlsx(daily_SwePolygons, "daily_SwePolygons.xlsx")
+```
+
+## Compute daily sum over BalticAreas and save
+
+```{r}
+daily_BalticAreas <- data %>% 
+  as_tibble() %>% 
+  select(-geometry) %>% 
+  group_by(Date, BalticAreas_id) %>% 
+  summarise(N_HS = sum(N_HS), .groups = "drop")
+head(daily_BalticAreas)
+openxlsx::write.xlsx(daily_BalticAreas, "daily_BalticAreas.xlsx")
+```
+
+
+## Convert SwePolygons to geojson and save
+
+```{r}
+SwePolygons_json <- tibble(id = SwePolygons$SwePolygons_id, 
+                           geojson = geojsonsf::sf_geojson(SwePolygons, atomise = TRUE))
+openxlsx::write.xlsx(SwePolygons_json, "SwePol_geojson.xlsx")
+```
+
